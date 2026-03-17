@@ -40,6 +40,7 @@ IFS=',' read -ra repos <<< "$TARGET_REPOS"
 blocks='[]'
 has_stale_prs=false
 repo_success_count=0
+total_open_prs=0
 
 for repo in "${repos[@]}"; do
   repo=$(echo "$repo" | xargs)
@@ -78,6 +79,8 @@ for repo in "${repos[@]}"; do
   done < <(echo "$prs" | jq -r '.[] | select(.isDraft == false and .reviewDecision != "APPROVED") | .number')
 
   repo_success_count=$((repo_success_count + 1))
+  repo_open_count=$(echo "$prs" | jq 'length')
+  total_open_prs=$((total_open_prs + repo_open_count))
   stale_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore_json" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
@@ -136,17 +139,21 @@ if [[ "$repo_success_count" -eq 0 ]]; then
 fi
 
 if [[ "$has_stale_prs" == "false" ]]; then
-  echo "対象PRなし。Slack通知をスキップします。"
-  exit 0
+  all_blocks=$(jq -n \
+    --arg stale_days "$STALE_DAYS" \
+    --argjson total "$total_open_prs" \
+    '[
+      {"type": "header", "text": {"type": "plain_text", "text": "👀 レビュー待ちPRリマインダー"}},
+      {"type": "section", "text": {"type": "mrkdwn", "text": ("open PR: " + ($total | tostring) + "件\n" + $stale_days + "日以上レビューされていないPR: 0件")}}
+    ]')
+else
+  header_block=$(jq -n --arg stale_days "$STALE_DAYS" '[
+    {"type": "header", "text": {"type": "plain_text", "text": "👀 レビュー待ちPRリマインダー"}},
+    {"type": "section", "text": {"type": "mrkdwn", "text": ($stale_days + "日以上レビューされていないPRがあります:")}},
+    {"type": "divider"}
+  ]')
+  all_blocks=$(jq -n --argjson header "$header_block" --argjson body "$blocks" '$header + $body')
 fi
-
-header_block='[
-  {"type": "header", "text": {"type": "plain_text", "text": "👀 レビュー待ちPRリマインダー"}},
-  {"type": "section", "text": {"type": "mrkdwn", "text": "'"${STALE_DAYS}"'日以上レビューされていないPRがあります:"}},
-  {"type": "divider"}
-]'
-
-all_blocks=$(jq -n --argjson header "$header_block" --argjson body "$blocks" '$header + $body')
 payload=$(jq -n --argjson blocks "$all_blocks" '{blocks: $blocks}')
 
 response=$(curl -s -o /dev/null -w "%{http_code}" \
