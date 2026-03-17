@@ -97,18 +97,14 @@ for repo in "${repos[@]}"; do
         reviewers="未設定"
       fi
 
-      text=$(jq -n \
+      blocks=$(echo "$blocks" | jq \
         --arg url "$url" \
         --arg number "$number" \
         --arg title "$title" \
         --arg days "$days" \
         --arg reviewers "$reviewers" \
         --arg status "$status" \
-        '"<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過\n- Reviewer: " + $reviewers + "\n- " + $status')
-
-      blocks=$(echo "$blocks" | jq --arg text "$text" '. + [
-        {"type": "section", "text": {"type": "mrkdwn", "text": $text}}
-      ]')
+        '. + [{"type": "section", "text": {"type": "mrkdwn", "text": ("<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過\n- Reviewer: " + $reviewers + "\n- " + $status)}}]')
     done < <(echo "$stale_prs" | jq -c '.[]')
 
     blocks=$(echo "$blocks" | jq '. + [{"type": "divider"}]')
