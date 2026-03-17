@@ -19,8 +19,8 @@ assert_eq() {
     passed=$((passed + 1))
   else
     echo "  ❌ ${test_name}"
-    echo "     expected: ${expected}"
-    echo "     actual:   ${actual}"
+    echo "     期待値: ${expected}"
+    echo "     実際値: ${actual}"
     failed=$((failed + 1))
   fi
 }
@@ -33,15 +33,16 @@ run_filter() {
   echo "$input" | jq --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore" -f "$JQ_FILTER"
 }
 
-# Fixed "now" for all tests: 2026-03-17T06:00:00Z
+# テスト基準時刻: 2026-03-17T06:00:00Z
 NOW=1773727200
-# 2 days in seconds
-THRESHOLD=172800
+# 閾値: 2日（秒数）
+SECONDS_PER_DAY=86400
+THRESHOLD=$((2 * SECONDS_PER_DAY))
 
 # ============================================================
 echo ""
-echo "=== Case 1: レビュー待ち (reviewer assigned, not yet reviewed) ==="
-# Last commit: 5 days ago, reviewer requested, no reviews
+echo "=== Case 1: レビュー待ち（レビュアー割当済み、未レビュー） ==="
+# 最終コミット: 5日前、レビューリクエスト済み、レビューなし
 INPUT='[{
   "number": 100,
   "title": "feat: add login",
@@ -56,14 +57,14 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "status is review_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "days_elapsed is 5" "5" "$(echo "$result" | jq -r '.[0].days_elapsed')"
-assert_eq "reviewer is alice" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
+assert_eq "ステータスがreview_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が5" "5" "$(echo "$result" | jq -r '.[0].days_elapsed')"
+assert_eq "レビュアーがalice" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
 
 # ============================================================
 echo ""
-echo "=== Case 2: 修正待ち (changes requested) ==="
-# Last review (CHANGES_REQUESTED): 3 days ago, last commit: 10 days ago
+echo "=== Case 2: 修正待ち（changes requested） ==="
+# 最終レビュー（CHANGES_REQUESTED）: 3日前、最終コミット: 10日前
 INPUT='[{
   "number": 200,
   "title": "fix: tax calc",
@@ -78,13 +79,13 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "status is changes_requested" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "days_elapsed is 3 (from last review, not commit)" "3" "$(echo "$result" | jq -r '.[0].days_elapsed')"
+assert_eq "ステータスがchanges_requested" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が3（最終レビュー基準、コミットではない）" "3" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
-echo "=== Case 3: 再レビュー依頼忘れ (reviewed, fixed, but no re-request) ==="
-# Has reviews, reviewRequests is empty, last commit: 4 days ago
+echo "=== Case 3: 再レビュー依頼忘れ（レビュー済み、修正済み、再リクエスト未送信） ==="
+# レビューあり、reviewRequestsが空、最終コミット: 4日前
 INPUT='[{
   "number": 300,
   "title": "refactor: auth",
@@ -99,13 +100,13 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "status is re_request_forgotten" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "days_elapsed is 4 (from last commit)" "4" "$(echo "$result" | jq -r '.[0].days_elapsed')"
+assert_eq "ステータスがre_request_forgotten" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が4（最終コミット基準）" "4" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
 echo "=== Case 4: Reviewer未設定 ==="
-# No reviewRequests, no reviews, last commit: 6 days ago
+# reviewRequestsなし、レビューなし、最終コミット: 6日前
 INPUT='[{
   "number": 400,
   "title": "chore: update deps",
@@ -120,8 +121,8 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "status is no_reviewer" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "days_elapsed is 6" "6" "$(echo "$result" | jq -r '.[0].days_elapsed')"
+assert_eq "ステータスがno_reviewer" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が6" "6" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
@@ -140,7 +141,7 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "draft PR is excluded" "0" "$(echo "$result" | jq 'length')"
+assert_eq "DraftPRは除外される" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
@@ -159,12 +160,12 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "approved PR is excluded" "0" "$(echo "$result" | jq 'length')"
+assert_eq "APPROVEDなPRは除外される" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
 echo "=== Case 7: 閾値以内のPRは除外される ==="
-# Last commit: 1 day ago (within 2-day threshold)
+# 最終コミット: 1日前（2日閾値以内）
 INPUT='[{
   "number": 700,
   "title": "feat: fresh PR",
@@ -179,12 +180,12 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "PR within threshold is excluded" "0" "$(echo "$result" | jq 'length')"
+assert_eq "閾値以内のPRは除外される" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
 echo "=== Case 8: 古いPRでも最近コミットしたら除外 ==="
-# Created 30 days ago, but last commit: yesterday
+# 作成30日前、最終コミットは昨日
 INPUT='[{
   "number": 800,
   "title": "feat: old but active",
@@ -199,12 +200,12 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "old PR with recent commit is excluded" "0" "$(echo "$result" | jq 'length')"
+assert_eq "古いPRでも最近コミットしたら除外" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
 echo "=== Case 9: 修正待ちで最近レビューされたら除外 ==="
-# CHANGES_REQUESTED yesterday
+# CHANGES_REQUESTEDが昨日
 INPUT='[{
   "number": 900,
   "title": "fix: just reviewed",
@@ -219,7 +220,7 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "recently reviewed changes_requested is excluded" "0" "$(echo "$result" | jq 'length')"
+assert_eq "最近レビューされた修正待ちは除外" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
@@ -252,14 +253,14 @@ INPUT='[
 ]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "2 PRs returned" "2" "$(echo "$result" | jq 'length')"
-assert_eq "older PR (more days) comes first" "1002" "$(echo "$result" | jq -r '.[0].number')"
-assert_eq "newer PR comes second" "1001" "$(echo "$result" | jq -r '.[1].number')"
+assert_eq "2件のPRが返る" "2" "$(echo "$result" | jq 'length')"
+assert_eq "経過日数が多いPRが先" "1002" "$(echo "$result" | jq -r '.[0].number')"
+assert_eq "経過日数が少ないPRが後" "1001" "$(echo "$result" | jq -r '.[1].number')"
 
 # ============================================================
 echo ""
 echo "=== Case 11: botのCOMMENTEDレビューのみ → Reviewer未設定扱い ==="
-# Only bot review, no human reviewers
+# botのレビューのみ、人間のレビュアーなし
 INPUT='[{
   "number": 1100,
   "title": "feat: bot only",
@@ -274,14 +275,14 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-# Bot review counts as "has_reviews=true" + no reviewRequests → re_request_forgotten
-assert_eq "bot-only review status is re_request_forgotten" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "days_elapsed is 7 (from last commit)" "7" "$(echo "$result" | jq -r '.[0].days_elapsed')"
+# botレビューはhas_reviews=true + reviewRequestsなし → re_request_forgotten
+assert_eq "botのみレビュー → re_request_forgotten" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が7（最終コミット基準）" "7" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
 echo "=== Case 12: CHANGES_REQUESTED + reviewRequests あり → 修正待ちが優先 ==="
-# Reviewer re-requested but latestReview is still CHANGES_REQUESTED
+# 再リクエスト済みだがlatestReviewがまだCHANGES_REQUESTED
 INPUT='[{
   "number": 1200,
   "title": "fix: complex state",
@@ -296,14 +297,14 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "changes_requested takes priority" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "days from last review (7)" "7" "$(echo "$result" | jq -r '.[0].days_elapsed')"
+assert_eq "changes_requestedが優先" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "最終レビューからの経過日数が7" "7" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
 echo "=== Case 13: 空配列 ==="
 result=$(run_filter "[]" "$NOW" "$THRESHOLD")
-assert_eq "empty input returns empty" "0" "$(echo "$result" | jq 'length')"
+assert_eq "空配列は空を返す" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
@@ -322,8 +323,8 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '["aws-security-agent"]')
-assert_eq "bot ignored → no_reviewer (not re_request_forgotten)" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "bot not in latest_reviews" "0" "$(echo "$result" | jq '.[0].latest_reviews | length')"
+assert_eq "bot除外 → no_reviewer（re_request_forgottenではない）" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "botがlatest_reviewsに含まれない" "0" "$(echo "$result" | jq '.[0].latest_reviews | length')"
 
 # ============================================================
 echo ""
@@ -348,8 +349,8 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '["aws-security-agent"]')
-assert_eq "human reviewer kept → review_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
-assert_eq "alice in review_requests" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
+assert_eq "人間レビュアーが残る → review_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "aliceがreview_requestsに含まれる" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
 
 # ============================================================
 echo ""
@@ -368,12 +369,12 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '[]')
-assert_eq "empty ignore list keeps bot" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "空の除外リストではbotが残る" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
 
 # ============================================================
 echo ""
 echo "================================================"
-echo "Results: ${passed}/${total} passed, ${failed} failed"
+echo "結果: ${passed}/${total} 成功、${failed} 失敗"
 echo "================================================"
 
 if [[ "$failed" -gt 0 ]]; then
