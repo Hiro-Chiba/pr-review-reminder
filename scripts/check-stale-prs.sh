@@ -42,12 +42,15 @@ for repo in "${repos[@]}"; do
     --state open \
     --author "$PR_AUTHOR" \
     --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews,commits \
-    --limit 100 2>/dev/null || echo "[]")
+    --limit 100 2>&1) || { echo "gh pr list failed for ${full_repo}: ${prs}"; prs="[]"; }
+
+  echo "Found $(echo "$prs" | jq 'length' 2>/dev/null || echo 'parse error') PRs in ${repo}"
 
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
   stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
+  echo "Stale PRs in ${repo}: ${count}"
 
   if [[ "$count" -gt 0 ]]; then
     has_stale_prs=true
