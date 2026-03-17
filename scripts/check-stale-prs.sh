@@ -41,7 +41,7 @@ for repo in "${repos[@]}"; do
     --repo "$full_repo" \
     --state open \
     --author "$PR_AUTHOR" \
-    --json number,title,author,createdAt,isDraft,reviewDecision,url,reviewRequests,assignees \
+    --json number,title,author,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,assignees \
     --limit 100 2>/dev/null || echo "[]")
 
   stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" '
@@ -54,7 +54,7 @@ for repo in "${repos[@]}"; do
       title,
       url,
       days_elapsed: ((($now - (.createdAt | fromdateiso8601)) / 86400) | floor),
-      reviewers: [.reviewRequests[]? | .login // .name // .slug // empty] | join(", "),
+      reviewers: ([.reviewRequests[]? | .login // .name // .slug // empty] + [.latestReviews[]? | .author.login // empty]) | unique | join(", "),
       assignees: [.assignees[]? | .login // empty] | join(", ")
     }] | sort_by(-.days_elapsed)')
 
