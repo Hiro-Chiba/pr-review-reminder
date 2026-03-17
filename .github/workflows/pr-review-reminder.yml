@@ -18,6 +18,7 @@ jobs:
           GH_ORG_NAME: ${{ secrets.GH_ORG_NAME }}
           TARGET_REPOS: ${{ secrets.TARGET_REPOS }}
           PR_AUTHOR: ${{ secrets.PR_AUTHOR }}
+          IGNORE_REVIEWERS: ${{ secrets.IGNORE_REVIEWERS }}
         run: |
           chmod +x scripts/check-stale-prs.sh
           bash scripts/check-stale-prs.sh
