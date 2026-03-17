@@ -52,7 +52,6 @@ for repo in "${repos[@]}"; do
     --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews \
     --limit 100 2>&1) || { echo "gh pr list failed for ${full_repo}: ${prs}"; prs="[]"; }
 
-  echo "Found $(echo "$prs" | jq 'length' 2>/dev/null || echo 'parse error') PRs in ${repo}"
 
   # Fetch last commit date per PR individually
   prs_with_commits="[]"
@@ -73,7 +72,6 @@ for repo in "${repos[@]}"; do
   stale_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore_json" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
-  echo "Stale PRs in ${repo}: ${count}"
 
   if [[ "$count" -gt 0 ]]; then
     has_stale_prs=true
