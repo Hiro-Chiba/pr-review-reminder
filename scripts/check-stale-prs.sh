@@ -76,9 +76,8 @@ for repo in "${repos[@]}"; do
   if [[ "$count" -gt 0 ]]; then
     has_stale_prs=true
 
-    blocks=$(echo "$blocks" | jq '. + [
-      {"type": "section", "text": {"type": "mrkdwn", "text": "*'"$repo"'*"}}
-    ]')
+    # Build all PRs for this repo into one text block
+    repo_text="*${repo}*"
 
     while IFS= read -r pr; do
       url=$(echo "$pr" | jq -r '.url')
@@ -102,17 +101,21 @@ for repo in "${repos[@]}"; do
         reviewers="未設定"
       fi
 
-      blocks=$(echo "$blocks" | jq \
+      repo_text=$(jq -n \
+        --arg prev "$repo_text" \
         --arg url "$url" \
         --arg number "$number" \
         --arg title "$title" \
         --arg days "$days" \
         --arg reviewers "$reviewers" \
         --arg status "$status" \
-        '. + [{"type": "section", "text": {"type": "mrkdwn", "text": ("<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過\n- Reviewer: " + $reviewers + "\n- " + $status)}}]')
+        '$prev + "\n\n<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過  |  Reviewer: " + $reviewers + "  |  " + $status')
     done < <(echo "$stale_prs" | jq -c '.[]')
 
-    blocks=$(echo "$blocks" | jq '. + [{"type": "divider"}]')
+    blocks=$(echo "$blocks" | jq --arg text "$repo_text" '. + [
+      {"type": "section", "text": {"type": "mrkdwn", "text": $text}},
+      {"type": "divider"}
+    ]')
   fi
 done
 
