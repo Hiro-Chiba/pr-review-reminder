@@ -1,0 +1,22 @@
+name: PR Review Reminder
+
+on:
+  schedule:
+    - cron: '0 1 * * 1-5' # 平日 10:00 JST (01:00 UTC)
+  workflow_dispatch: {} # 手動実行用
+
+jobs:
+  check-stale-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check stale PRs and notify Slack
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_ORG_NAME: ${{ secrets.GH_ORG_NAME }}
+          TARGET_REPOS: ${{ secrets.TARGET_REPOS }}
+        run: |
+          chmod +x scripts/check-stale-prs.sh
+          bash scripts/check-stale-prs.sh
