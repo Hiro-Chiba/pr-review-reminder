@@ -41,23 +41,49 @@ for repo in "${repos[@]}"; do
     --repo "$full_repo" \
     --state open \
     --author "$PR_AUTHOR" \
-    --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews \
+    --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews,commits \
     --limit 100 2>/dev/null || echo "[]")
 
   stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" '
     [.[] | select(
       .isDraft == false
       and (.reviewDecision != "APPROVED")
-      and (($now - (.createdAt | fromdateiso8601)) > $threshold)
-    ) | {
+    ) |
+    # Determine status flags
+    (.reviewRequests | length > 0) as $has_request |
+    ([.latestReviews[]? | select(.state == "CHANGES_REQUESTED")] | length > 0) as $has_changes_requested |
+    ((.reviews | length) > 0) as $has_reviews |
+
+    # Calculate reference date based on status
+    (.commits | last | .committedDate | fromdateiso8601) as $last_commit |
+    ([.reviews[]? | .submittedAt | fromdateiso8601] | if length > 0 then max else 0 end) as $last_review |
+
+    # Status and elapsed days
+    (if $has_changes_requested then
+      # 修正待ち: days since last review
+      { status: "✏️ 修正待ち（自分が対応する番）", ref_date: $last_review }
+    elif $has_request then
+      # レビュー待ち: days since last commit
+      { status: "⏳ レビュー待ち", ref_date: $last_commit }
+    elif $has_reviews and ($has_request | not) then
+      # 再レビュー依頼忘れ: days since last commit
+      { status: "🔄 再レビュー依頼忘れ", ref_date: $last_commit }
+    else
+      # Reviewer未設定: days since last commit
+      { status: "⚠️ Reviewer未設定", ref_date: $last_commit }
+    end) as $state |
+
+    # Filter by threshold using the appropriate reference date
+    select(($now - $state.ref_date) > $threshold) |
+
+    {
       number,
       title,
       url,
-      days_elapsed: ((($now - (.createdAt | fromdateiso8601)) / 86400) | floor),
+      days_elapsed: ((($now - $state.ref_date) / 86400) | floor),
       review_requests: [.reviewRequests[]? | .login // .name // .slug // empty],
       latest_reviews: [.latestReviews[]? | {author: .author.login, state: .state}],
-      has_reviews: ((.reviews | length) > 0),
-      has_changes_requested: ([.latestReviews[]? | select(.state == "CHANGES_REQUESTED")] | length > 0)
+      status: $state.status
     }] | sort_by(-.days_elapsed)')
 
   count=$(echo "$stale_prs" | jq 'length')
@@ -74,25 +100,10 @@ for repo in "${repos[@]}"; do
       number=$(echo "$pr" | jq -r '.number')
       title=$(echo "$pr" | jq -r '.title')
       days=$(echo "$pr" | jq -r '.days_elapsed')
+      status=$(echo "$pr" | jq -r '.status')
 
-      has_request=$(echo "$pr" | jq -r '.review_requests | length > 0')
-      has_changes_requested=$(echo "$pr" | jq -r '.has_changes_requested')
-      has_reviews=$(echo "$pr" | jq -r '.has_reviews')
-
-      # Reviewer list: merge pending requests + reviewed people
       reviewers=$(echo "$pr" | jq -r '
         ([.review_requests[]] + [.latest_reviews[]? | .author]) | unique | join(", ")')
-
-      # Determine status
-      if [[ "$has_changes_requested" == "true" ]]; then
-        status="✏️ 修正待ち（自分が対応する番）"
-      elif [[ "$has_request" == "true" ]]; then
-        status="⏳ レビュー待ち"
-      elif [[ "$has_reviews" == "true" && "$has_request" == "false" ]]; then
-        status="🔄 再レビュー依頼忘れ"
-      else
-        status="⚠️ Reviewer未設定"
-      fi
 
       if [[ -z "$reviewers" ]]; then
         reviewers="未設定"
