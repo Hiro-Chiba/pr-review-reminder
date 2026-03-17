@@ -28,7 +28,10 @@ threshold=$((STALE_DAYS * 86400))
 
 IFS=',' read -ra repos <<< "$TARGET_REPOS"
 
-message_blocks=""
+# Slack blocks array (JSON)
+blocks='[]'
+
+has_stale_prs=false
 
 for repo in "${repos[@]}"; do
   repo=$(echo "$repo" | xargs) # trim whitespace
@@ -40,7 +43,7 @@ for repo in "${repos[@]}"; do
     --repo "$full_repo" \
     --state open \
     --author "$PR_AUTHOR" \
-    --json number,title,author,createdAt,isDraft,reviewDecision,url \
+    --json number,title,author,createdAt,isDraft,reviewDecision,url,reviewRequests,assignees \
     --limit 100 2>/dev/null || echo "[]")
 
   stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" '
@@ -51,38 +54,66 @@ for repo in "${repos[@]}"; do
     ) | {
       number,
       title,
-      author: .author.login,
       url,
-      days_elapsed: ((($now - (.createdAt | fromdateiso8601)) / 86400) | floor)
+      days_elapsed: ((($now - (.createdAt | fromdateiso8601)) / 86400) | floor),
+      reviewers: [.reviewRequests[]? | .login // .name // .slug // empty] | join(", "),
+      assignees: [.assignees[]? | .login // empty] | join(", ")
     }] | sort_by(-.days_elapsed)')
 
   count=$(echo "$stale_prs" | jq 'length')
 
   if [[ "$count" -gt 0 ]]; then
-    repo_block="*${repo}*\n"
+    has_stale_prs=true
 
+    # Add repo header
+    blocks=$(echo "$blocks" | jq --arg repo "$repo" '. + [
+      {"type": "section", "text": {"type": "mrkdwn", "text": ("*" + $repo + "*")}}
+    ]')
+
+    # Add each PR
     while IFS= read -r pr; do
       number=$(echo "$pr" | jq -r '.number')
       title=$(echo "$pr" | jq -r '.title')
-      author=$(echo "$pr" | jq -r '.author')
       url=$(echo "$pr" | jq -r '.url')
       days=$(echo "$pr" | jq -r '.days_elapsed')
+      reviewers=$(echo "$pr" | jq -r '.reviewers')
+      assignees=$(echo "$pr" | jq -r '.assignees')
 
-      repo_block+="• <${url}|#${number} ${title}> (@${author}) - ${days}日経過\n"
+      line="<${url}|#${number} ${title}> - ${days}日経過"
+      if [[ -n "$reviewers" ]]; then
+        line="${line}\n      Reviewer: ${reviewers}"
+      else
+        line="${line}\n      Reviewer: _未設定_"
+      fi
+      if [[ -n "$assignees" ]]; then
+        line="${line}\n      Assignee: ${assignees}"
+      fi
+
+      blocks=$(echo "$blocks" | jq --arg line "$line" '. + [
+        {"type": "section", "text": {"type": "mrkdwn", "text": $line}}
+      ]')
     done < <(echo "$stale_prs" | jq -c '.[]')
 
-    message_blocks+="${repo_block}\n"
+    # Add divider between repos
+    blocks=$(echo "$blocks" | jq '. + [{"type": "divider"}]')
   fi
 done
 
-if [[ -z "$message_blocks" ]]; then
+if [[ "$has_stale_prs" == "false" ]]; then
   echo "No stale PRs found. Skipping Slack notification."
   exit 0
 fi
 
-text=":eyes: *レビュー待ちPRリマインダー*\n\n${STALE_DAYS}日以上レビューされていないPRがあります:\n\n${message_blocks}"
+# Build final payload with header
+header_block='[
+  {"type": "header", "text": {"type": "plain_text", "text": "👀 レビュー待ちPRリマインダー"}},
+  {"type": "section", "text": {"type": "mrkdwn", "text": "'"${STALE_DAYS}"'日以上レビューされていないPRがあります:"}},
+  {"type": "divider"}
+]'
 
-payload=$(jq -n --arg text "$text" '{text: $text}')
+all_blocks=$(jq -n --argjson header "$header_block" --argjson body "$blocks" '$header + $body')
+
+payload=$(jq -n --argjson blocks "$all_blocks" '{blocks: $blocks}')
 
 response=$(curl -s -o /dev/null -w "%{http_code}" \
   -X POST \
