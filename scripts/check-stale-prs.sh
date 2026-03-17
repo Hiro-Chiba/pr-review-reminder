@@ -34,6 +34,7 @@ if [[ -n "${IGNORE_REVIEWERS:-}" ]]; then
   ignore_json=$(printf '%s\n' "${ignore_arr[@]}" | jq -R . | jq -s .)
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IFS=',' read -ra repos <<< "$TARGET_REPOS"
 
 blocks='[]'
@@ -77,7 +78,6 @@ for repo in "${repos[@]}"; do
   done < <(echo "$prs" | jq -r '.[] | select(.isDraft == false and .reviewDecision != "APPROVED") | .number')
 
   repo_success_count=$((repo_success_count + 1))
-  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
   stale_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore_json" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
