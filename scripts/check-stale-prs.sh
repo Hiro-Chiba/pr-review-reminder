@@ -26,6 +26,13 @@ fi
 now=$(date +%s)
 threshold=$((STALE_DAYS * 86400))
 
+# Build JSON array of ignored reviewers
+ignore_json="[]"
+if [[ -n "${IGNORE_REVIEWERS:-}" ]]; then
+  IFS=',' read -ra ignore_arr <<< "$IGNORE_REVIEWERS"
+  ignore_json=$(printf '%s\n' "${ignore_arr[@]}" | jq -R . | jq -s .)
+fi
+
 IFS=',' read -ra repos <<< "$TARGET_REPOS"
 
 blocks='[]'
@@ -63,7 +70,7 @@ for repo in "${repos[@]}"; do
   done < <(echo "$prs" | jq -r '.[] | select(.isDraft == false and .reviewDecision != "APPROVED") | .number')
 
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  stale_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
+  stale_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore_json" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
   echo "Stale PRs in ${repo}: ${count}"

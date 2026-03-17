@@ -29,7 +29,8 @@ run_filter() {
   local input="$1"
   local now="$2"
   local threshold="$3"
-  echo "$input" | jq --argjson now "$now" --argjson threshold "$threshold" -f "$JQ_FILTER"
+  local ignore="${4:-[]}"
+  echo "$input" | jq --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore" -f "$JQ_FILTER"
 }
 
 # Fixed "now" for all tests: 2026-03-17T06:00:00Z
@@ -303,6 +304,71 @@ echo ""
 echo "=== Case 13: 空配列 ==="
 result=$(run_filter "[]" "$NOW" "$THRESHOLD")
 assert_eq "empty input returns empty" "0" "$(echo "$result" | jq 'length')"
+
+# ============================================================
+echo ""
+echo "=== Case 14: IGNORE_REVIEWERS でbotレビュアーを除外 ==="
+INPUT='[{
+  "number": 1400,
+  "title": "feat: with bot reviewer",
+  "url": "https://github.com/org/repo/pull/1400",
+  "createdAt": "2026-03-01T00:00:00Z",
+  "isDraft": false,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "reviewRequests": [],
+  "latestReviews": [{"author": {"login": "aws-security-agent"}, "state": "COMMENTED", "submittedAt": "2026-03-02T00:00:00Z"}],
+  "reviews": [{"author": {"login": "aws-security-agent"}, "state": "COMMENTED", "submittedAt": "2026-03-02T00:00:00Z"}],
+  "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
+}]'
+
+result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '["aws-security-agent"]')
+assert_eq "bot ignored → no_reviewer (not re_request_forgotten)" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "bot not in latest_reviews" "0" "$(echo "$result" | jq '.[0].latest_reviews | length')"
+
+# ============================================================
+echo ""
+echo "=== Case 15: IGNORE_REVIEWERS で人間レビュアーは残る ==="
+INPUT='[{
+  "number": 1500,
+  "title": "feat: mixed reviewers",
+  "url": "https://github.com/org/repo/pull/1500",
+  "createdAt": "2026-03-01T00:00:00Z",
+  "isDraft": false,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "reviewRequests": [{"login": "alice"}],
+  "latestReviews": [
+    {"author": {"login": "aws-security-agent"}, "state": "COMMENTED", "submittedAt": "2026-03-02T00:00:00Z"},
+    {"author": {"login": "alice"}, "state": "COMMENTED", "submittedAt": "2026-03-05T00:00:00Z"}
+  ],
+  "reviews": [
+    {"author": {"login": "aws-security-agent"}, "state": "COMMENTED", "submittedAt": "2026-03-02T00:00:00Z"},
+    {"author": {"login": "alice"}, "state": "COMMENTED", "submittedAt": "2026-03-05T00:00:00Z"}
+  ],
+  "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
+}]'
+
+result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '["aws-security-agent"]')
+assert_eq "human reviewer kept → review_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "alice in review_requests" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
+
+# ============================================================
+echo ""
+echo "=== Case 16: IGNORE_REVIEWERS 空なら何も除外しない ==="
+INPUT='[{
+  "number": 1600,
+  "title": "feat: no ignore",
+  "url": "https://github.com/org/repo/pull/1600",
+  "createdAt": "2026-03-01T00:00:00Z",
+  "isDraft": false,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "reviewRequests": [],
+  "latestReviews": [{"author": {"login": "aws-security-agent"}, "state": "COMMENTED", "submittedAt": "2026-03-02T00:00:00Z"}],
+  "reviews": [{"author": {"login": "aws-security-agent"}, "state": "COMMENTED", "submittedAt": "2026-03-02T00:00:00Z"}],
+  "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
+}]'
+
+result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '[]')
+assert_eq "empty ignore list keeps bot" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
 
 # ============================================================
 echo ""

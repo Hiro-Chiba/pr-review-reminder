@@ -1,10 +1,15 @@
 # Filter and classify stale PRs
 # Input: array of PRs from gh pr list
-# Arguments: $now (unix timestamp), $threshold (seconds)
+# Arguments: $now (unix timestamp), $threshold (seconds), $ignore_reviewers (array of logins to ignore)
+($ignore_reviewers // []) as $ignored |
 [.[] | select(
   .isDraft == false
   and (.reviewDecision != "APPROVED")
 ) |
+# Filter out ignored reviewers
+.reviewRequests = [.reviewRequests[]? | select((.login // .name // .slug) as $l | $ignored | index($l) | not)] |
+.latestReviews = [.latestReviews[]? | select(.author.login as $l | $ignored | index($l) | not)] |
+.reviews = [.reviews[]? | select(.author.login as $l | $ignored | index($l) | not)] |
 # Determine status flags
 (.reviewRequests | length > 0) as $has_request |
 ([.latestReviews[]? | select(.state == "CHANGES_REQUESTED")] | length > 0) as $has_changes_requested |
