@@ -46,6 +46,7 @@ repo-name
 | `GH_ORG_NAME` | GitHub Organization 名 |
 | `TARGET_REPOS` | 監視対象リポジトリ名（カンマ区切り、例: `repo-a,repo-b,repo-c`） |
 | `GH_PAT` | GitHub Personal Access Token |
+| `PR_AUTHOR` | 通知対象の GitHub ユーザー名 |
 
 ### 4. 動作確認
 

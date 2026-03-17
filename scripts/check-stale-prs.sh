@@ -18,6 +18,11 @@ if [[ -z "${TARGET_REPOS:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${PR_AUTHOR:-}" ]]; then
+  echo "Error: PR_AUTHOR is not set"
+  exit 1
+fi
+
 now=$(date +%s)
 threshold=$((STALE_DAYS * 86400))
 
@@ -34,6 +39,7 @@ for repo in "${repos[@]}"; do
   prs=$(gh pr list \
     --repo "$full_repo" \
     --state open \
+    --author "$PR_AUTHOR" \
     --json number,title,author,createdAt,isDraft,reviewDecision,url \
     --limit 100 2>/dev/null || echo "[]")
 
