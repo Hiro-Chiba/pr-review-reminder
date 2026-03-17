@@ -41,7 +41,7 @@ for repo in "${repos[@]}"; do
     --repo "$full_repo" \
     --state open \
     --author "$PR_AUTHOR" \
-    --json number,title,author,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,assignees \
+    --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews \
     --limit 100 2>/dev/null || echo "[]")
 
   stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" '
@@ -54,8 +54,10 @@ for repo in "${repos[@]}"; do
       title,
       url,
       days_elapsed: ((($now - (.createdAt | fromdateiso8601)) / 86400) | floor),
-      reviewers: ([.reviewRequests[]? | .login // .name // .slug // empty] + [.latestReviews[]? | .author.login // empty]) | unique | join(", "),
-      assignees: [.assignees[]? | .login // empty] | join(", ")
+      review_requests: [.reviewRequests[]? | .login // .name // .slug // empty],
+      latest_reviews: [.latestReviews[]? | {author: .author.login, state: .state}],
+      has_reviews: ((.reviews | length) > 0),
+      has_changes_requested: ([.latestReviews[]? | select(.state == "CHANGES_REQUESTED")] | length > 0)
     }] | sort_by(-.days_elapsed)')
 
   count=$(echo "$stale_prs" | jq 'length')
@@ -63,32 +65,47 @@ for repo in "${repos[@]}"; do
   if [[ "$count" -gt 0 ]]; then
     has_stale_prs=true
 
-    # Repo header
     blocks=$(echo "$blocks" | jq '. + [
-      {"type": "section", "text": {"type": "mrkdwn", "text": ("*'"$repo"'*")}}
+      {"type": "section", "text": {"type": "mrkdwn", "text": "*'"$repo"'*"}}
     ]')
 
-    # Each PR as a single section with real newlines
     while IFS= read -r pr; do
       url=$(echo "$pr" | jq -r '.url')
       number=$(echo "$pr" | jq -r '.number')
       title=$(echo "$pr" | jq -r '.title')
       days=$(echo "$pr" | jq -r '.days_elapsed')
-      reviewers=$(echo "$pr" | jq -r '.reviewers')
-      assignees=$(echo "$pr" | jq -r '.assignees')
 
-      # Build text with real newlines using jq
+      has_request=$(echo "$pr" | jq -r '.review_requests | length > 0')
+      has_changes_requested=$(echo "$pr" | jq -r '.has_changes_requested')
+      has_reviews=$(echo "$pr" | jq -r '.has_reviews')
+
+      # Reviewer list: merge pending requests + reviewed people
+      reviewers=$(echo "$pr" | jq -r '
+        ([.review_requests[]] + [.latest_reviews[]? | .author]) | unique | join(", ")')
+
+      # Determine status
+      if [[ "$has_changes_requested" == "true" ]]; then
+        status="✏️ 修正待ち（自分が対応する番）"
+      elif [[ "$has_request" == "true" ]]; then
+        status="⏳ レビュー待ち"
+      elif [[ "$has_reviews" == "true" && "$has_request" == "false" ]]; then
+        status="🔄 再レビュー依頼忘れ"
+      else
+        status="⚠️ Reviewer未設定"
+      fi
+
+      if [[ -z "$reviewers" ]]; then
+        reviewers="未設定"
+      fi
+
       text=$(jq -n \
         --arg url "$url" \
         --arg number "$number" \
         --arg title "$title" \
         --arg days "$days" \
-        --arg reviewers "${reviewers:-未設定}" \
-        --arg assignees "${assignees:-未設定}" \
-        '("<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過\n- Reviewer: " + $reviewers + "\n- Assignee: " + $assignees)')
-
-      # Remove outer quotes from jq output
-      text=$(echo "$text" | jq -r '.')
+        --arg reviewers "$reviewers" \
+        --arg status "$status" \
+        '"<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過\n- Reviewer: " + $reviewers + "\n- " + $status')
 
       blocks=$(echo "$blocks" | jq --arg text "$text" '. + [
         {"type": "section", "text": {"type": "mrkdwn", "text": $text}}
