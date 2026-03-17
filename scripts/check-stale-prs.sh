@@ -76,8 +76,10 @@ for repo in "${repos[@]}"; do
   if [[ "$count" -gt 0 ]]; then
     has_stale_prs=true
 
-    # Build all PRs for this repo into one text block
-    repo_text="*${repo}*"
+    # Repo header as context block (compact)
+    blocks=$(echo "$blocks" | jq --arg repo "$repo" '. + [
+      {"type": "context", "elements": [{"type": "mrkdwn", "text": ("*" + $repo + "*")}]}
+    ]')
 
     while IFS= read -r pr; do
       url=$(echo "$pr" | jq -r '.url')
@@ -101,32 +103,21 @@ for repo in "${repos[@]}"; do
         reviewers="未設定"
       fi
 
-      pr_line=$(jq -n \
+      # PR link as section, details as context (compact)
+      blocks=$(echo "$blocks" | jq \
         --arg url "$url" \
         --arg number "$number" \
         --arg title "$title" \
         --arg days "$days" \
         --arg reviewers "$reviewers" \
         --arg status "$status" \
-        '"<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過  |  Reviewer: " + $reviewers + "  |  " + $status')
-
-      # Split into new section if approaching 3000 char limit
-      new_len=$(( ${#repo_text} + ${#pr_line} + 2 ))
-      if [[ "$new_len" -gt 2800 ]]; then
-        blocks=$(echo "$blocks" | jq --arg text "$repo_text" '. + [
-          {"type": "section", "text": {"type": "mrkdwn", "text": $text}}
+        '. + [
+          {"type": "section", "text": {"type": "mrkdwn", "text": ("<" + $url + "|#" + $number + " " + $title + ">")}},
+          {"type": "context", "elements": [{"type": "mrkdwn", "text": ($days + "日経過  |  Reviewer: " + $reviewers + "  |  " + $status)}]}
         ]')
-        repo_text=""
-      fi
-
-      repo_text=$(jq -n --arg prev "$repo_text" --arg line "$pr_line" \
-        'if $prev == "" then $line else $prev + "\n\n" + $line end')
     done < <(echo "$stale_prs" | jq -c '.[]')
 
-    blocks=$(echo "$blocks" | jq --arg text "$repo_text" '. + [
-      {"type": "section", "text": {"type": "mrkdwn", "text": $text}},
-      {"type": "divider"}
-    ]')
+    blocks=$(echo "$blocks" | jq '. + [{"type": "divider"}]')
   fi
 done
 
