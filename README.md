@@ -1,75 +1,79 @@
 # PR Review Reminder
 
-GitHub Actions cron で動作する Slack Bot。指定した GitHub Organization のリポジトリで、2日以上レビューされていない PR を Slack に通知します。
+自分のPRがレビューされずに放置されていないかチェックし、Slackに通知するBot。
 
-## 特徴
+GitHub Actions cron（平日10:00 JST）で自動実行。該当PRが0件なら通知しない。
 
-- サーバー不要（GitHub Actions のみ）
-- 依存関係ゼロ（gh CLI + jq + curl）
-- パブリックリポジトリ対応（機密情報はすべて GitHub Secrets で管理）
-- 平日 10:00 JST に自動実行
-- レビュー待ち PR が 0 件なら通知しない
-
-## Slack メッセージ例
+## 通知イメージ
 
 ```
 👀 レビュー待ちPRリマインダー
 
 2日以上レビューされていないPRがあります:
 
-repo-name
-• #123 feat: add login flow (@author) - 3日経過
+partner-prop-api
+
+#3230 fix: 未知のcolumn_idに対する警告レスポンス追加
+- 40日経過
+- Reviewer: kenfukumori
+- ⏳ レビュー待ち
+
+#3441 feat: グループ作成時パートナー同時指定
+- 24日経過
+- Reviewer: kenfukumori
+- 🔄 再レビュー依頼忘れ
 ```
+
+### ステータス一覧
+
+| 表示 | 意味 |
+|---|---|
+| ⏳ レビュー待ち | レビュアーがまだ見ていない |
+| ✏️ 修正待ち | Changes Requested。自分が対応する番 |
+| 🔄 再レビュー依頼忘れ | 対応済みだがre-requestを送っていない |
+| ⚠️ Reviewer未設定 | レビュアーが設定されていない |
 
 ## セットアップ
 
-### 1. Slack Incoming Webhook の作成
+### 1. GitHub Secrets の設定
 
-1. [Slack API](https://api.slack.com/apps) で Slack App を作成
-2. 「Incoming Webhooks」を有効化
-3. 通知先チャンネルへの Webhook URL を生成
+Settings > Secrets and variables > Actions に以下を登録：
 
-### 2. GitHub PAT の作成
+| Secret名 | 内容 | 例 |
+|---|---|---|
+| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | `https://hooks.slack.com/services/...` |
+| `GH_PAT` | GitHub Fine-grained PAT（対象orgのPR読み取り権限） | `github_pat_...` |
+| `GH_ORG_NAME` | GitHub Organization名 | `my-org` |
+| `TARGET_REPOS` | 監視対象リポジトリ（カンマ区切り） | `api,frontend,admin` |
+| `PR_AUTHOR` | 通知対象のGitHubユーザー名 | `octocat` |
+
+### 2. Slack Incoming Webhook の作成
+
+1. [Slack API](https://api.slack.com/apps) > Create an App > From scratch
+2. Incoming Webhooks を On にする
+3. Add New Webhook to Workspace で通知先チャンネルを選択
+4. 生成されたURLを `SLACK_WEBHOOK_URL` に設定
+
+### 3. GitHub PAT の作成
 
 1. GitHub Settings > Developer settings > Fine-grained personal access tokens
-2. 対象の Organization を選択
-3. Repository access で対象リポジトリを選択
-4. Permissions > Repository permissions > Pull requests: **Read**
-
-### 3. GitHub Secrets の設定
-
-リポジトリの Settings > Secrets and variables > Actions に以下を設定：
-
-| Secret 名 | 内容 |
-|---|---|
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL |
-| `GH_ORG_NAME` | GitHub Organization 名 |
-| `TARGET_REPOS` | 監視対象リポジトリ名（カンマ区切り、例: `repo-a,repo-b,repo-c`） |
-| `GH_PAT` | GitHub Personal Access Token |
-| `PR_AUTHOR` | 通知対象の GitHub ユーザー名 |
+2. Resource owner: 対象Organization
+3. Repository access: 監視対象リポジトリを選択
+4. Permissions > Pull requests: **Read**
 
 ### 4. 動作確認
 
-Actions タブ > PR Review Reminder > Run workflow で手動実行して確認。
+Actions > PR Review Reminder > Run workflow で手動実行。
 
 ## カスタマイズ
 
-### 経過日数の変更
+**経過日数** — ワークフローの env に `STALE_DAYS` を追加（デフォルト: 2）
 
-デフォルトは 2 日。`STALE_DAYS` 環境変数で変更可能：
-
-```yaml
-env:
-  STALE_DAYS: '3'
-```
-
-### 実行スケジュールの変更
-
-`.github/workflows/pr-review-reminder.yml` の cron 式を変更：
+**実行スケジュール** — `.github/workflows/pr-review-reminder.yml` の cron を変更
 
 ```yaml
 schedule:
-  - cron: '0 1 * * 1-5'  # 平日 10:00 JST
+  - cron: '0 1 * * 1-5'  # 平日 10:00 JST (UTC+9)
 ```
 
 ## License
