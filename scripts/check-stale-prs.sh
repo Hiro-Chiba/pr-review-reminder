@@ -44,47 +44,8 @@ for repo in "${repos[@]}"; do
     --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews,commits \
     --limit 100 2>/dev/null || echo "[]")
 
-  stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" '
-    [.[] | select(
-      .isDraft == false
-      and (.reviewDecision != "APPROVED")
-    ) |
-    # Determine status flags
-    (.reviewRequests | length > 0) as $has_request |
-    ([.latestReviews[]? | select(.state == "CHANGES_REQUESTED")] | length > 0) as $has_changes_requested |
-    ((.reviews | length) > 0) as $has_reviews |
-
-    # Calculate reference date based on status
-    (.commits | last | .committedDate | fromdateiso8601) as $last_commit |
-    ([.reviews[]? | .submittedAt | fromdateiso8601] | if length > 0 then max else 0 end) as $last_review |
-
-    # Status and elapsed days
-    (if $has_changes_requested then
-      # 修正待ち: days since last review
-      { status: "✏️ 修正待ち（自分が対応する番）", ref_date: $last_review }
-    elif $has_request then
-      # レビュー待ち: days since last commit
-      { status: "⏳ レビュー待ち", ref_date: $last_commit }
-    elif $has_reviews and ($has_request | not) then
-      # 再レビュー依頼忘れ: days since last commit
-      { status: "🔄 再レビュー依頼忘れ", ref_date: $last_commit }
-    else
-      # Reviewer未設定: days since last commit
-      { status: "⚠️ Reviewer未設定", ref_date: $last_commit }
-    end) as $state |
-
-    # Filter by threshold using the appropriate reference date
-    select(($now - $state.ref_date) > $threshold) |
-
-    {
-      number,
-      title,
-      url,
-      days_elapsed: ((($now - $state.ref_date) / 86400) | floor),
-      review_requests: [.reviewRequests[]? | .login // .name // .slug // empty],
-      latest_reviews: [.latestReviews[]? | {author: .author.login, state: .state}],
-      status: $state.status
-    }] | sort_by(-.days_elapsed)')
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
 
@@ -100,7 +61,15 @@ for repo in "${repos[@]}"; do
       number=$(echo "$pr" | jq -r '.number')
       title=$(echo "$pr" | jq -r '.title')
       days=$(echo "$pr" | jq -r '.days_elapsed')
-      status=$(echo "$pr" | jq -r '.status')
+      status_key=$(echo "$pr" | jq -r '.status')
+
+      case "$status_key" in
+        review_pending)       status="⏳ レビュー待ち" ;;
+        changes_requested)    status="✏️ 修正待ち（自分が対応する番）" ;;
+        re_request_forgotten) status="🔄 再レビュー依頼忘れ" ;;
+        no_reviewer)          status="⚠️ Reviewer未設定" ;;
+        *)                    status="$status_key" ;;
+      esac
 
       reviewers=$(echo "$pr" | jq -r '
         ([.review_requests[]] + [.latest_reviews[]? | .author]) | unique | join(", ")')

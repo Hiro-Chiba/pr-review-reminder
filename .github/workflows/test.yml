@@ -1,0 +1,21 @@
+name: Test
+
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        run: bash tests/test-filter-stale-prs.sh
