@@ -28,13 +28,11 @@ threshold=$((STALE_DAYS * 86400))
 
 IFS=',' read -ra repos <<< "$TARGET_REPOS"
 
-# Slack blocks array (JSON)
 blocks='[]'
-
 has_stale_prs=false
 
 for repo in "${repos[@]}"; do
-  repo=$(echo "$repo" | xargs) # trim whitespace
+  repo=$(echo "$repo" | xargs)
   full_repo="${GH_ORG_NAME}/${repo}"
 
   echo "Checking ${full_repo}..."
@@ -65,36 +63,38 @@ for repo in "${repos[@]}"; do
   if [[ "$count" -gt 0 ]]; then
     has_stale_prs=true
 
-    # Add repo header
-    blocks=$(echo "$blocks" | jq --arg repo "$repo" '. + [
-      {"type": "section", "text": {"type": "mrkdwn", "text": ("*" + $repo + "*")}}
+    # Repo header
+    blocks=$(echo "$blocks" | jq '. + [
+      {"type": "section", "text": {"type": "mrkdwn", "text": ("*'"$repo"'*")}}
     ]')
 
-    # Add each PR
+    # Each PR as a single section with real newlines
     while IFS= read -r pr; do
+      url=$(echo "$pr" | jq -r '.url')
       number=$(echo "$pr" | jq -r '.number')
       title=$(echo "$pr" | jq -r '.title')
-      url=$(echo "$pr" | jq -r '.url')
       days=$(echo "$pr" | jq -r '.days_elapsed')
       reviewers=$(echo "$pr" | jq -r '.reviewers')
       assignees=$(echo "$pr" | jq -r '.assignees')
 
-      line="<${url}|#${number} ${title}> - ${days}日経過"
-      if [[ -n "$reviewers" ]]; then
-        line="${line}\n      Reviewer: ${reviewers}"
-      else
-        line="${line}\n      Reviewer: _未設定_"
-      fi
-      if [[ -n "$assignees" ]]; then
-        line="${line}\n      Assignee: ${assignees}"
-      fi
+      # Build text with real newlines using jq
+      text=$(jq -n \
+        --arg url "$url" \
+        --arg number "$number" \
+        --arg title "$title" \
+        --arg days "$days" \
+        --arg reviewers "${reviewers:-未設定}" \
+        --arg assignees "${assignees:-未設定}" \
+        '("<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過\n- Reviewer: " + $reviewers + "\n- Assignee: " + $assignees)')
 
-      blocks=$(echo "$blocks" | jq --arg line "$line" '. + [
-        {"type": "section", "text": {"type": "mrkdwn", "text": $line}}
+      # Remove outer quotes from jq output
+      text=$(echo "$text" | jq -r '.')
+
+      blocks=$(echo "$blocks" | jq --arg text "$text" '. + [
+        {"type": "section", "text": {"type": "mrkdwn", "text": $text}}
       ]')
     done < <(echo "$stale_prs" | jq -c '.[]')
 
-    # Add divider between repos
     blocks=$(echo "$blocks" | jq '. + [{"type": "divider"}]')
   fi
 done
@@ -104,7 +104,6 @@ if [[ "$has_stale_prs" == "false" ]]; then
   exit 0
 fi
 
-# Build final payload with header
 header_block='[
   {"type": "header", "text": {"type": "plain_text", "text": "👀 レビュー待ちPRリマインダー"}},
   {"type": "section", "text": {"type": "mrkdwn", "text": "'"${STALE_DAYS}"'日以上レビューされていないPRがあります:"}},
@@ -112,7 +111,6 @@ header_block='[
 ]'
 
 all_blocks=$(jq -n --argjson header "$header_block" --argjson body "$blocks" '$header + $body')
-
 payload=$(jq -n --argjson blocks "$all_blocks" '{blocks: $blocks}')
 
 response=$(curl -s -o /dev/null -w "%{http_code}" \
