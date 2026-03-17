@@ -37,17 +37,33 @@ for repo in "${repos[@]}"; do
 
   echo "Checking ${full_repo}..."
 
+  # Get PR list without commits (to avoid GraphQL node limit)
   prs=$(gh pr list \
     --repo "$full_repo" \
     --state open \
     --author "$PR_AUTHOR" \
-    --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews,commits \
+    --json number,title,createdAt,isDraft,reviewDecision,url,reviewRequests,latestReviews,reviews \
     --limit 100 2>&1) || { echo "gh pr list failed for ${full_repo}: ${prs}"; prs="[]"; }
 
   echo "Found $(echo "$prs" | jq 'length' 2>/dev/null || echo 'parse error') PRs in ${repo}"
 
+  # Fetch last commit date per PR individually
+  prs_with_commits="[]"
+  while IFS= read -r pr_number; do
+    pr_data=$(echo "$prs" | jq --argjson n "$pr_number" '[.[] | select(.number == $n)][0]')
+    last_commit=$(gh pr view "$pr_number" --repo "$full_repo" --json commits --jq '.commits | last | .committedDate' 2>/dev/null || echo "")
+    if [[ -n "$last_commit" ]]; then
+      pr_data=$(echo "$pr_data" | jq --arg lc "$last_commit" '. + {commits: [{committedDate: $lc}]}')
+    else
+      # Fallback to createdAt
+      created=$(echo "$pr_data" | jq -r '.createdAt')
+      pr_data=$(echo "$pr_data" | jq --arg lc "$created" '. + {commits: [{committedDate: $lc}]}')
+    fi
+    prs_with_commits=$(echo "$prs_with_commits" | jq --argjson pr "$pr_data" '. + [$pr]')
+  done < <(echo "$prs" | jq -r '.[] | select(.isDraft == false and .reviewDecision != "APPROVED") | .number')
+
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  stale_prs=$(echo "$prs" | jq -r --argjson now "$now" --argjson threshold "$threshold" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
+  stale_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$stale_prs" | jq 'length')
   echo "Stale PRs in ${repo}: ${count}"
