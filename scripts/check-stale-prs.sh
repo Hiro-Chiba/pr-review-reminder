@@ -101,15 +101,26 @@ for repo in "${repos[@]}"; do
         reviewers="未設定"
       fi
 
-      repo_text=$(jq -n \
-        --arg prev "$repo_text" \
+      pr_line=$(jq -n \
         --arg url "$url" \
         --arg number "$number" \
         --arg title "$title" \
         --arg days "$days" \
         --arg reviewers "$reviewers" \
         --arg status "$status" \
-        '$prev + "\n\n<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過  |  Reviewer: " + $reviewers + "  |  " + $status')
+        '"<" + $url + "|#" + $number + " " + $title + ">\n- " + $days + "日経過  |  Reviewer: " + $reviewers + "  |  " + $status')
+
+      # Split into new section if approaching 3000 char limit
+      new_len=$(( ${#repo_text} + ${#pr_line} + 2 ))
+      if [[ "$new_len" -gt 2800 ]]; then
+        blocks=$(echo "$blocks" | jq --arg text "$repo_text" '. + [
+          {"type": "section", "text": {"type": "mrkdwn", "text": $text}}
+        ]')
+        repo_text=""
+      fi
+
+      repo_text=$(jq -n --arg prev "$repo_text" --arg line "$pr_line" \
+        'if $prev == "" then $line else $prev + "\n\n" + $line end')
     done < <(echo "$stale_prs" | jq -c '.[]')
 
     blocks=$(echo "$blocks" | jq --arg text "$repo_text" '. + [
