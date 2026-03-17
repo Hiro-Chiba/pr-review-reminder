@@ -46,6 +46,7 @@ Settings > Secrets and variables > Actions に以下を登録：
 | `GH_ORG_NAME` | GitHub Organization名 | `my-org` |
 | `TARGET_REPOS` | 監視対象リポジトリ（カンマ区切り） | `api,frontend,admin` |
 | `PR_AUTHOR` | 通知対象のGitHubユーザー名 | `octocat` |
+| `IGNORE_REVIEWERS` | 除外するレビュアー（任意、カンマ区切り） | `aws-security-agent,dependabot[bot]` |
 
 ### 2. Slack Incoming Webhook の作成
 
