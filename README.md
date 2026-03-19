@@ -2,7 +2,7 @@
 
 自分のPRがレビューされずに放置されていないかチェックし、Slackに通知するBot。
 
-GitHub Actions cron（平日10:00 JST）で自動実行。該当PRが0件なら通知しない。
+GitHub Actions cron（平日9:30 JST）で自動実行。該当PRが0件なら通知しない。
 
 ## 通知イメージ
 
@@ -74,7 +74,7 @@ Actions > PR Review Reminder > Run workflow で手動実行。
 
 ```yaml
 schedule:
-  - cron: '0 1 * * 1-5'  # 平日 10:00 JST (UTC+9)
+  - cron: '30 0 * * 1-5'  # 平日 09:30 JST (UTC+9)
 ```
 
 ## License
