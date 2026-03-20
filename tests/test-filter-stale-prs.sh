@@ -145,7 +145,7 @@ assert_eq "DraftPRは除外される" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
 echo ""
-echo "=== Case 6: APPROVEDは除外される ==="
+echo "=== Case 6: APPROVEDはapprovedステータスで返る ==="
 INPUT='[{
   "number": 600,
   "title": "feat: approved one",
@@ -160,7 +160,9 @@ INPUT='[{
 }]'
 
 result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "APPROVEDなPRは除外される" "0" "$(echo "$result" | jq 'length')"
+assert_eq "APPROVEDなPRは1件返る" "1" "$(echo "$result" | jq 'length')"
+assert_eq "ステータスがapproved" "approved" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "days_elapsedが0" "0" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
