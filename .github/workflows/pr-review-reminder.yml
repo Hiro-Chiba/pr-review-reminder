@@ -2,7 +2,7 @@ name: PR Review Reminder
 
 on:
   schedule:
-    - cron: '30 0 * * 1-5' # 平日 09:30 JST (00:30 UTC)
+    - cron: '0 23 * * 0-4' # 平日 08:00 JST (23:00 UTC 前日)
   workflow_dispatch: {} # 手動実行用
 
 jobs:
