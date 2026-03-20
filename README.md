@@ -1,27 +1,26 @@
 # PR Review Reminder
 
-自分のPRがレビューされずに放置されていないかチェックし、Slackに通知するBot。
+PRの状態をチェックし、Slackにリマインダーを送るBot。
 
-GitHub Actions cron（平日9:30 JST）で自動実行。該当PRが0件なら通知しない。
+- 自分のPR: レビュー待ち・修正待ち・マージ可能などのステータスを通知
+- レビュー依頼: 自分がレビュアーに設定されている他人のPRを通知
+
+GitHub Actions cron（平日8:00 JST）で自動実行。該当PRが0件なら「対象PRなし」を通知。
 
 ## 通知イメージ
 
 ```
-👀 レビュー待ちPRリマインダー
+👀 PRリマインダー
 
-2日以上レビューされていないPRがあります:
-
+── 自分のPR ──
 my-api
+⏳ レビュー待ち | #142 feat: add billing endpoint | 5日経過 | Reviewer: alice
+✅ マージ可能 | #456 approved PR title
+✏️ 修正待ち | #138 fix: correct tax calculation | 3日経過 | Reviewer: bob
 
-#142 feat: add billing endpoint
-- 5日経過
-- Reviewer: alice
-- ⏳ レビュー待ち
-
-#138 fix: correct tax calculation
-- 3日経過
-- Reviewer: bob
-- 🔄 再レビュー依頼忘れ
+── レビュー依頼 ──
+frontend
+🔍 レビューしてね | #321 feat: new dashboard | 2日経過
 ```
 
 ### ステータス一覧
@@ -32,6 +31,8 @@ my-api
 | ✏️ 修正待ち | Changes Requested。自分が対応する番 |
 | 🔄 再レビュー依頼忘れ | 対応済みだがre-requestを送っていない |
 | ⚠️ Reviewer未設定 | レビュアーが設定されていない |
+| ✅ マージ可能 | Approveされており、マージできる状態 |
+| 🔍 レビューしてね | 自分がレビュアーに設定されている他人のPR |
 
 ## セットアップ
 
@@ -74,7 +75,7 @@ Actions > PR Review Reminder > Run workflow で手動実行。
 
 ```yaml
 schedule:
-  - cron: '30 0 * * 1-5'  # 平日 09:30 JST (UTC+9)
+  - cron: '0 23 * * 0-4'  # 平日 08:00 JST (UTC+9)
 ```
 
 ## License
