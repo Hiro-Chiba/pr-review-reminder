@@ -1,6 +1,6 @@
-# 放置PRのフィルタリングと分類
+# オープンPRのフィルタリングと分類
 # 入力: gh pr list から取得したPR配列
-# 引数: $now (UNIXタイムスタンプ), $threshold (秒数), $ignore_reviewers (除外対象ログイン名の配列)
+# 引数: $now (UNIXタイムスタンプ), $ignore_reviewers (除外対象ログイン名の配列)
 ($ignore_reviewers // []) as $ignored |
 [.[] | select(.isDraft == false) |
 # 除外対象レビュアーを除去
@@ -39,9 +39,6 @@ else
   else
     { status: "no_reviewer", ref_date: $last_commit }
   end) as $state |
-
-  # 基準日からの経過が閾値を超えているかフィルタ
-  select(($now - $state.ref_date) > $threshold) |
 
   {
     number,

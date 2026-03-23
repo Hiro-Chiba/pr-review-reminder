@@ -28,16 +28,12 @@ assert_eq() {
 run_filter() {
   local input="$1"
   local now="$2"
-  local threshold="$3"
-  local ignore="${4:-[]}"
-  echo "$input" | jq --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore" -f "$JQ_FILTER"
+  local ignore="${3:-[]}"
+  echo "$input" | jq --argjson now "$now" --argjson ignore_reviewers "$ignore" -f "$JQ_FILTER"
 }
 
 # テスト基準時刻: 2026-03-17T06:00:00Z
 NOW=1773727200
-# 閾値: 2日（秒数）
-SECONDS_PER_DAY=86400
-THRESHOLD=$((2 * SECONDS_PER_DAY))
 
 # ============================================================
 echo ""
@@ -56,7 +52,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-12T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "ステータスがreview_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "経過日数が5" "5" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 assert_eq "レビュアーがalice" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
@@ -78,7 +74,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-07T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "ステータスがchanges_requested" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "経過日数が3（最終レビュー基準、コミットではない）" "3" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
@@ -99,7 +95,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-05T06:00:00Z"}, {"committedDate": "2026-03-13T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "ステータスがre_request_forgotten" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "経過日数が4（最終コミット基準）" "4" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
@@ -120,7 +116,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-11T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "ステータスがno_reviewer" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "経過日数が6" "6" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
@@ -140,7 +136,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "DraftPRは除外される" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
@@ -159,15 +155,15 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-05T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "APPROVEDなPRは1件返る" "1" "$(echo "$result" | jq 'length')"
 assert_eq "ステータスがapproved" "approved" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "days_elapsedが0" "0" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
-echo "=== Case 7: 閾値以内のPRは除外される ==="
-# 最終コミット: 1日前（2日閾値以内）
+echo "=== Case 7: 作成直後のPRも返る ==="
+# 最終コミット: 1日前
 INPUT='[{
   "number": 700,
   "title": "feat: fresh PR",
@@ -181,12 +177,14 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-16T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "閾値以内のPRは除外される" "0" "$(echo "$result" | jq 'length')"
+result=$(run_filter "$INPUT" "$NOW")
+assert_eq "作成直後のPRも返る" "1" "$(echo "$result" | jq 'length')"
+assert_eq "ステータスがreview_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が1" "1" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
-echo "=== Case 8: 古いPRでも最近コミットしたら除外 ==="
+echo "=== Case 8: 古いPRで最近コミットしたものも返る ==="
 # 作成30日前、最終コミットは昨日
 INPUT='[{
   "number": 800,
@@ -201,12 +199,13 @@ INPUT='[{
   "commits": [{"committedDate": "2026-02-15T00:00:00Z"}, {"committedDate": "2026-03-16T12:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "古いPRでも最近コミットしたら除外" "0" "$(echo "$result" | jq 'length')"
+result=$(run_filter "$INPUT" "$NOW")
+assert_eq "古いPRで最近コミットしたものも返る" "1" "$(echo "$result" | jq 'length')"
+assert_eq "経過日数は最終コミット基準で0" "0" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
-echo "=== Case 9: 修正待ちで最近レビューされたら除外 ==="
+echo "=== Case 9: 修正待ちで最近レビューされたものも返る ==="
 # CHANGES_REQUESTEDが昨日
 INPUT='[{
   "number": 900,
@@ -221,8 +220,10 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-01T00:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
-assert_eq "最近レビューされた修正待ちは除外" "0" "$(echo "$result" | jq 'length')"
+result=$(run_filter "$INPUT" "$NOW")
+assert_eq "最近レビューされた修正待ちも返る" "1" "$(echo "$result" | jq 'length')"
+assert_eq "ステータスがchanges_requested" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
+assert_eq "経過日数が0（最終レビュー基準）" "0" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
@@ -254,7 +255,7 @@ INPUT='[
   }
 ]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "2件のPRが返る" "2" "$(echo "$result" | jq 'length')"
 assert_eq "経過日数が多いPRが先" "1002" "$(echo "$result" | jq -r '.[0].number')"
 assert_eq "経過日数が少ないPRが後" "1001" "$(echo "$result" | jq -r '.[1].number')"
@@ -276,7 +277,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 # botレビューはhas_reviews=true + reviewRequestsなし → re_request_forgotten
 assert_eq "botのみレビュー → re_request_forgotten" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "経過日数が7（最終コミット基準）" "7" "$(echo "$result" | jq -r '.[0].days_elapsed')"
@@ -298,14 +299,14 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-12T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD")
+result=$(run_filter "$INPUT" "$NOW")
 assert_eq "changes_requestedが優先" "changes_requested" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "最終レビューからの経過日数が7" "7" "$(echo "$result" | jq -r '.[0].days_elapsed')"
 
 # ============================================================
 echo ""
 echo "=== Case 13: 空配列 ==="
-result=$(run_filter "[]" "$NOW" "$THRESHOLD")
+result=$(run_filter "[]" "$NOW")
 assert_eq "空配列は空を返す" "0" "$(echo "$result" | jq 'length')"
 
 # ============================================================
@@ -324,7 +325,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '["aws-security-agent"]')
+result=$(run_filter "$INPUT" "$NOW" '["aws-security-agent"]')
 assert_eq "bot除外 → no_reviewer（re_request_forgottenではない）" "no_reviewer" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "botがlatest_reviewsに含まれない" "0" "$(echo "$result" | jq '.[0].latest_reviews | length')"
 
@@ -350,7 +351,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '["aws-security-agent"]')
+result=$(run_filter "$INPUT" "$NOW" '["aws-security-agent"]')
 assert_eq "人間レビュアーが残る → review_pending" "review_pending" "$(echo "$result" | jq -r '.[0].status')"
 assert_eq "aliceがreview_requestsに含まれる" "alice" "$(echo "$result" | jq -r '.[0].review_requests[0]')"
 
@@ -370,7 +371,7 @@ INPUT='[{
   "commits": [{"committedDate": "2026-03-10T06:00:00Z"}]
 }]'
 
-result=$(run_filter "$INPUT" "$NOW" "$THRESHOLD" '[]')
+result=$(run_filter "$INPUT" "$NOW" '[]')
 assert_eq "空の除外リストではbotが残る" "re_request_forgotten" "$(echo "$result" | jq -r '.[0].status')"
 
 # ============================================================

@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STALE_DAYS="${STALE_DAYS:-2}"
-SECONDS_PER_DAY=86400
-
 if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
   echo "エラー: SLACK_WEBHOOK_URL が設定されていません"
   exit 1
@@ -25,7 +22,6 @@ if [[ -z "${PR_AUTHOR:-}" ]]; then
 fi
 
 now=$(date +%s)
-threshold=$((STALE_DAYS * SECONDS_PER_DAY))
 
 # 除外対象レビュアーのJSON配列を構築
 ignore_json="[]"
@@ -87,7 +83,7 @@ for repo in "${repos[@]}"; do
   repo_success_count=$((repo_success_count + 1))
 
   # jqフィルタで分類（approved + stale）
-  filtered_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson threshold "$threshold" --argjson ignore_reviewers "$ignore_json" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
+  filtered_prs=$(echo "$prs_with_commits" | jq -r --argjson now "$now" --argjson ignore_reviewers "$ignore_json" -f "${SCRIPT_DIR}/filter-stale-prs.jq")
 
   count=$(echo "$filtered_prs" | jq 'length')
 

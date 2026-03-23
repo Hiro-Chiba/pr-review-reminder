@@ -5,7 +5,7 @@ PRの状態をチェックし、Slackにリマインダーを送るBot。
 - 自分のPR: レビュー待ち・修正待ち・マージ可能などのステータスを通知
 - レビュー依頼: 自分がレビュアーに設定されている他人のPRを通知
 
-GitHub Actions cron（平日8:00 JST）で自動実行。該当PRが0件なら「対象PRなし」を通知。
+GitHub Actions cron（月・水・金 8:00 JST）で自動実行。該当PRが0件なら「対象PRなし」を通知。
 
 ## 通知イメージ
 
@@ -69,13 +69,11 @@ Actions > PR Review Reminder > Run workflow で手動実行。
 
 ## カスタマイズ
 
-**経過日数** — ワークフローの env に `STALE_DAYS` を追加（デフォルト: 2）
-
 **実行スケジュール** — `.github/workflows/pr-review-reminder.yml` の cron を変更
 
 ```yaml
 schedule:
-  - cron: '0 23 * * 0-4'  # 平日 08:00 JST (UTC+9)
+  - cron: '0 23 * * 0,2,4'  # 月水金 08:00 JST (前日 23:00 UTC)
 ```
 
 ## License
